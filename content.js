@@ -152,6 +152,14 @@
 
   // ── Build TOC HTML for clipboard ──────────────────────────────────────────────
   function buildCopyHTML(headings, settings) {
+    if (settings.useNativeList) {
+      return buildCopyHTML_NativeList(headings, settings);
+    }
+    return buildCopyHTML_Paragraphs(headings, settings);
+  }
+
+  // Option 1: <p> per item — custom numbering, full control
+  function buildCopyHTML_Paragraphs(headings, settings) {
     const lines = buildTOCLines(headings, settings);
     const minLevel = Math.min(...headings.map(h => h.level));
     const tocParts = [];
@@ -168,12 +176,63 @@
       const linkText = escHtml(h.text);
 
       let entry = `${indent}${prefix}<a href="#${line.id}">${linkText}</a>`;
-      if (settings.bold) entry = `<strong>${entry}</strong>`;
-      if (settings.italic) entry = `<em>${entry}</em>`;
+      const isSub = rel > 0;
+      if (isSub ? settings.subBold : settings.bold) entry = `<strong>${entry}</strong>`;
+      if (isSub ? settings.subItalic : settings.italic) entry = `<em>${entry}</em>`;
       tocParts.push(`<p>${entry}</p>`);
     });
 
     return tocParts.join('\n');
+  }
+
+  // Option 2: <ol>/<li> — Medium's native numbered list
+  // Sub-headings go as <br> inside same <li> (shift-enter behavior:
+  // tight spacing, stays indented under the parent list item).
+  function buildCopyHTML_NativeList(headings, settings) {
+    const minLevel = Math.min(...headings.map(h => h.level));
+    const lines = buildTOCLines(headings, settings);
+    let html = '';
+
+    if (settings.showTitle && settings.tocTitle) {
+      html += `<p><strong>${escHtml(settings.tocTitle)}</strong></p>\n`;
+    }
+
+    // Group: each main heading starts a new <li>, sub-headings append via <br>
+    const groups = [];
+    lines.forEach((line, idx) => {
+      const h = headings[idx];
+      const rel = h.level - minLevel;
+      if (rel === 0) {
+        groups.push({ main: { line, heading: h }, subs: [] });
+      } else if (groups.length > 0) {
+        groups[groups.length - 1].subs.push({ line, heading: h });
+      }
+    });
+
+    html += '<ol>\n';
+    groups.forEach(group => {
+      const { line, heading } = group.main;
+      let mainEntry = `<a href="#${line.id}">${escHtml(heading.text)}</a>`;
+      if (settings.bold) mainEntry = `<strong>${mainEntry}</strong>`;
+      if (settings.italic) mainEntry = `<em>${mainEntry}</em>`;
+
+      let liContent = mainEntry;
+
+      group.subs.forEach(sub => {
+        const subRel = sub.heading.level - minLevel;
+        const indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'.repeat(subRel);
+        const prefix = escHtml(sub.line.text.substring(0, sub.line.text.length - sub.heading.text.length));
+        let subEntry = `${indent}${prefix}<a href="#${sub.line.id}">${escHtml(sub.heading.text)}</a>`;
+        if (settings.subBold) subEntry = `<strong>${subEntry}</strong>`;
+        if (settings.subItalic) subEntry = `<em>${subEntry}</em>`;
+        liContent += `<br>${subEntry}`;
+      });
+
+      html += `<li>${liContent}</li>\n`;
+    });
+    html += '</ol>';
+
+    return html;
   }
 
   // ── Copy TOC to clipboard as rich HTML ─────────────────────────────────────
@@ -214,8 +273,11 @@
     bulletChar: '•',
     bold: false,
     italic: false,
+    subBold: false,
+    subItalic: true,
     showTitle: true,
     tocTitle: 'Table of Contents',
+    useNativeList: false,
   };
 
   function openPanel() {
@@ -330,6 +392,27 @@
       saveSettings(); updatePreview();
     });
 
+    panel.querySelector('#bmb-sub-bold').addEventListener('change', (e) => {
+      settings.subBold = e.target.checked;
+      saveSettings(); updatePreview();
+    });
+
+    panel.querySelector('#bmb-sub-italic').addEventListener('change', (e) => {
+      settings.subItalic = e.target.checked;
+      saveSettings(); updatePreview();
+    });
+
+    panel.querySelector('#bmb-native-list').addEventListener('change', (e) => {
+      settings.useNativeList = e.target.checked;
+      // When native list is on, main style is handled by <ol> so hide the main style selector
+      panel.querySelector('#bmb-main-style').closest('div').style.display = e.target.checked ? 'none' : 'flex';
+      saveSettings(); updatePreview();
+    });
+    // Init visibility
+    if (settings.useNativeList) {
+      panel.querySelector('#bmb-main-style').closest('div').style.display = 'none';
+    }
+
     // Draggable
     makeDraggable(panel, panel.querySelector('#bmb-header'));
 
@@ -429,13 +512,35 @@
           <input type="checkbox" id="bmb-show-title" ${settings.showTitle?'checked':''} style="cursor:pointer;" />
           Title
         </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;cursor:pointer;">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:#999;font-family:monospace;min-width:42px;">Main:</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#666;cursor:pointer;">
           <input type="checkbox" id="bmb-bold" ${settings.bold?'checked':''} style="cursor:pointer;" />
           <strong>Bold</strong>
         </label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;cursor:pointer;">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#666;cursor:pointer;">
           <input type="checkbox" id="bmb-italic" ${settings.italic?'checked':''} style="cursor:pointer;" />
           <em>Italic</em>
+        </label>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:#999;font-family:monospace;min-width:42px;">Sub:</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#666;cursor:pointer;">
+          <input type="checkbox" id="bmb-sub-bold" ${settings.subBold?'checked':''} style="cursor:pointer;" />
+          <strong>Bold</strong>
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#666;cursor:pointer;">
+          <input type="checkbox" id="bmb-sub-italic" ${settings.subItalic?'checked':''} style="cursor:pointer;" />
+          <em>Italic</em>
+        </label>
+      </div>
+
+      <!-- Native list toggle -->
+      <div style="margin-top:10px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;cursor:pointer;">
+          <input type="checkbox" id="bmb-native-list" ${settings.useNativeList?'checked':''} style="cursor:pointer;" />
+          Use Medium's native list (better spacing)
         </label>
       </div>
 
@@ -494,20 +599,49 @@
       ? `<div style="font-size:11px;font-weight:700;margin-bottom:6px;">${escHtml(settings.tocTitle)}</div>`
       : '';
 
-    const fw = settings.bold ? 'font-weight:700;' : '';
-    const fs = settings.italic ? 'font-style:italic;' : '';
+    const mainStyle = `${settings.bold ? 'font-weight:700;' : ''}${settings.italic ? 'font-style:italic;' : ''}`;
+    const subStyle = `${settings.subBold ? 'font-weight:700;' : ''}${settings.subItalic ? 'font-style:italic;' : ''}`;
 
-    const itemsHTML = lines.map((line, idx) => {
-      const h = currentHeadings[idx];
-      const rel = h.level - minLevel;
-      const indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'.repeat(rel);
-      // Sub-items get less vertical spacing than main items
-      const margin = rel === 0 ? 'margin:0.4em 0' : 'margin:0.15em 0';
+    let itemsHTML;
 
-      return `<p style="${margin};padding:0;">${indent}${escHtml(line.text)}</p>`;
-    }).join('');
+    if (settings.useNativeList) {
+      // Preview as <ol> to match what Medium will render
+      const groups = [];
+      lines.forEach((line, idx) => {
+        const h = currentHeadings[idx];
+        const rel = h.level - minLevel;
+        if (rel === 0) {
+          groups.push({ main: { line, heading: h }, subs: [] });
+        } else if (groups.length > 0) {
+          groups[groups.length - 1].subs.push({ line, heading: h });
+        }
+      });
 
-    preview.innerHTML = `<div>${titleHTML}<div style="font-size:13px;color:#1a1a1a;${fw}${fs}">${itemsHTML}</div></div>`;
+      const lisHTML = groups.map(group => {
+        let content = `<span style="${mainStyle}">${escHtml(group.main.heading.text)}</span>`;
+        group.subs.forEach(sub => {
+          const subRel = sub.heading.level - minLevel;
+          const indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'.repeat(subRel);
+          const prefix = escHtml(sub.line.text.substring(0, sub.line.text.length - sub.heading.text.length));
+          content += `<br><span style="${subStyle}">${indent}${prefix}${escHtml(sub.heading.text)}</span>`;
+        });
+        return `<li>${content}</li>`;
+      }).join('');
+
+      itemsHTML = `<ol style="margin:0;padding-left:1.5em;">${lisHTML}</ol>`;
+    } else {
+      // Preview as <p> items
+      itemsHTML = lines.map((line, idx) => {
+        const h = currentHeadings[idx];
+        const rel = h.level - minLevel;
+        const indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'.repeat(rel);
+        const margin = rel === 0 ? 'margin:0.4em 0' : 'margin:0.15em 0';
+        const style = rel === 0 ? mainStyle : subStyle;
+        return `<p style="${margin};padding:0;${style}">${indent}${escHtml(line.text)}</p>`;
+      }).join('');
+    }
+
+    preview.innerHTML = `<div>${titleHTML}<div style="font-size:13px;color:#1a1a1a;">${itemsHTML}</div></div>`;
   }
 
   function handleCopy() {
