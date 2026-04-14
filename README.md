@@ -8,9 +8,9 @@ Since this extension isn't on the Chrome Web Store, you'll need to load it manua
 
 ## Installation
 
-1. **Download this repo** — click the green **Code** button above, then **Download ZIP**
+1. **Download this repo** — [click **Here** to download the Zip.](https://github.com/pranav1211/toc-medium-by-bmb/archive/refs/tags/v1.0.zip)
 2. **Extract the ZIP** — unzip it anywhere on your computer
-3. Open Chrome Extensions — go to (chrome://extensions)[chrome://extensions] in your browser
+3. Open Chrome Extensions — go to [chrome://extensions](chrome://extensions) in your browser
 4. **Enable Developer Mode** — toggle the switch in the top-right corner
 5. **Load the extension** — click **Load unpacked** (top-left), then select the `toc-extension` folder from the extracted files
 6. **Done** — the extension icon appears in your toolbar. Do **not** delete the extracted folder — Chrome reads from it directly.
