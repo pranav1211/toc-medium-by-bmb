@@ -150,11 +150,15 @@
     });
   }
 
-  // ── Build TOC lines HTML (without title) ─────────────────────────────────────
-  function buildInsertLinesHTML(headings, settings) {
+  // ── Build TOC HTML for clipboard ──────────────────────────────────────────────
+  function buildCopyHTML(headings, settings) {
     const lines = buildTOCLines(headings, settings);
     const minLevel = Math.min(...headings.map(h => h.level));
-    const tocLines = [];
+    const tocParts = [];
+
+    if (settings.showTitle && settings.tocTitle) {
+      tocParts.push(`<p><strong>${escHtml(settings.tocTitle)}</strong></p>`);
+    }
 
     lines.forEach((line, idx) => {
       const h = headings[idx];
@@ -166,48 +170,37 @@
       let entry = `${indent}${prefix}<a href="#${line.id}">${linkText}</a>`;
       if (settings.bold) entry = `<strong>${entry}</strong>`;
       if (settings.italic) entry = `<em>${entry}</em>`;
-      tocLines.push(entry);
+      tocParts.push(`<p>${entry}</p>`);
     });
 
-    return tocLines.join('<br>');
+    return tocParts.join('\n');
   }
 
-  // ── Simulate Enter key on element ──────────────────────────────────────────
-  function simulateEnter(el) {
-    el.dispatchEvent(new KeyboardEvent('keydown', {
-      bubbles: true, cancelable: true, keyCode: 13,
-    }));
-  }
+  // ── Copy TOC to clipboard as rich HTML ─────────────────────────────────────
+  function copyTOCToClipboard(settings, headings) {
+    const html = buildCopyHTML(headings, settings);
+    const plainLines = buildTOCLines(headings, settings);
+    const plainText = (settings.showTitle && settings.tocTitle ? settings.tocTitle + '\n' : '')
+      + plainLines.map(l => l.text).join('\n');
 
-  // ── Insert into Medium's editor (toc-medium approach) ──────────────────────
-  // Write directly to .is-selected innerHTML + simulate Enter to sync model.
-  // Hash links never go through paste pipeline, so #hash stays as #hash.
-  function insertIntoEditor(settings, headings) {
-    const container = document.querySelector('.is-selected');
-    if (!container) {
-      console.error(TAG, 'No .is-selected element — click inside a paragraph first');
-      return false;
-    }
+    const blob = new Blob([html], { type: 'text/html' });
+    const textBlob = new Blob([plainText], { type: 'text/plain' });
 
-    console.log(TAG, 'Inserting into .is-selected:', container.tagName);
-
-    if (settings.showTitle) {
-      // Title in its own paragraph (full Enter break)
-      container.innerHTML = `<strong>${escHtml(settings.tocTitle)}</strong>`;
-      simulateEnter(container);
-
-      // After Enter, Medium creates a new .is-selected paragraph — insert TOC there
-      setTimeout(() => {
-        const newContainer = document.querySelector('.is-selected');
-        if (newContainer) {
-          newContainer.innerHTML = buildInsertLinesHTML(headings, settings);
-          simulateEnter(newContainer);
-        }
-      }, 50);
-    } else {
-      container.innerHTML = buildInsertLinesHTML(headings, settings);
-      simulateEnter(container);
-    }
+    navigator.clipboard.write([
+      new ClipboardItem({
+        'text/html': blob,
+        'text/plain': textBlob,
+      })
+    ]).then(() => {
+      console.log(TAG, 'TOC copied to clipboard');
+      return true;
+    }).catch(err => {
+      console.error(TAG, 'Clipboard write failed:', err);
+      // Fallback: plain text copy
+      navigator.clipboard.writeText(plainText).then(() => {
+        console.log(TAG, 'TOC copied as plain text (fallback)');
+      });
+    });
 
     return true;
   }
@@ -287,7 +280,7 @@
 
     // Bind events
     panel.querySelector('#bmb-close').addEventListener('click', closePanel);
-    panel.querySelector('#bmb-insert-btn').addEventListener('click', handleInsert);
+    panel.querySelector('#bmb-insert-btn').addEventListener('click', handleCopy);
     panel.querySelector('#bmb-refresh').addEventListener('click', () => {
       currentHeadings = collectHeadings();
       updatePreview();
@@ -474,10 +467,10 @@
         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
         transition:background 0.15s;
       ">
-        Insert TOC into article
+        Copy TOC
       </button>
       <div style="font-size:10px;color:#bbb;text-align:center;margin-top:6px;font-family:monospace;">
-        Click inside a paragraph first, then insert
+        Copies as rich text — paste into your article
       </div>
     </div>
     `;
@@ -508,29 +501,26 @@
       const h = currentHeadings[idx];
       const rel = h.level - minLevel;
       const indent = '\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0'.repeat(rel);
+      // Sub-items get less vertical spacing than main items
+      const margin = rel === 0 ? 'margin:0.4em 0' : 'margin:0.15em 0';
 
-      return `${indent}${escHtml(line.text)}`;
-    }).join('<br>');
+      return `<p style="${margin};padding:0;">${indent}${escHtml(line.text)}</p>`;
+    }).join('');
 
-    preview.innerHTML = `<div>${titleHTML}<div style="font-size:13px;line-height:1.7;color:#1a1a1a;${fw}${fs}">${itemsHTML}</div></div>`;
+    preview.innerHTML = `<div>${titleHTML}<div style="font-size:13px;color:#1a1a1a;${fw}${fs}">${itemsHTML}</div></div>`;
   }
 
-  function handleInsert() {
-    console.log(TAG, 'Insert button clicked');
+  function handleCopy() {
+    console.log(TAG, 'Copy button clicked');
 
     if (!currentHeadings.length) {
-      console.warn(TAG, 'No headings to insert');
+      console.warn(TAG, 'No headings to copy');
       showToast('No headings found! Add some H1/H2 headings first.');
       return;
     }
 
-    const ok = insertIntoEditor(settings, currentHeadings);
-    if (ok) {
-      showToast(`✓ TOC inserted — ${currentHeadings.length} headings`);
-      closePanel();
-    } else {
-      showToast('Click inside a paragraph in your article first, then try again.');
-    }
+    copyTOCToClipboard(settings, currentHeadings);
+    showToast(`✓ TOC copied — paste it into your article`);
   }
 
   function saveSettings() {
